@@ -77,14 +77,18 @@ export class JobQueueRepository {
       qb.where('j.tenantId IN (:...ids)', { ids: tenantIds });
     }
     const rows = await qb.getRawMany();
-    const perTenant: Record<string, { pending: number; executing: number }> = {};
+    const perTenant: Record<string, { pending: number; executing: number; succeeded: number; failed: number; cancelled: number; dead_letter: number }> = {};
     for (const r of rows as any[]) {
       const t = r.tenantId as string;
       const status = r.status as JobStatus | string;
       const count = Number(r.count);
-      if (!perTenant[t]) perTenant[t] = { pending: 0, executing: 0 };
+      if (!perTenant[t]) perTenant[t] = { pending: 0, executing: 0, succeeded: 0, failed: 0, cancelled: 0, dead_letter: 0 };
       if (status === 'pending') perTenant[t].pending += count;
-      if (status === 'executing' || status === 'leased') perTenant[t].executing += count;
+      if (status === 'queued') perTenant[t].executing += count;
+      if (status === 'succeeded') perTenant[t].succeeded += count;
+      if (status === 'failed') perTenant[t].failed += count;
+      if (status === 'cancelled') perTenant[t].cancelled += count;
+      if (status === 'dead_letter') perTenant[t].dead_letter += count;
     }
     return perTenant;
   }

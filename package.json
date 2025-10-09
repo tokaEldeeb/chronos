@@ -13,7 +13,8 @@
     "dev:worker": "npm run -w @chronos/worker start:dev",
     "start:api": "npm run -w @chronos/api start",
     "start:scheduler": "npm run -w @chronos/scheduler start",
-    "start:worker": "npm run -w @chronos/worker start"
+    "start:worker": "npm run -w @chronos/worker start",
+    "simulate": "node scripts/simulate.js"
   }
 }
 

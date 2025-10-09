@@ -19,9 +19,9 @@ async function tick() {
     console.log('processing job', job.id);
     const jobId = job.id;
     await redisRepo.enqueuePending(job.tenantId, jobId);
-    await repo.update({ id: jobId }, { status: JobStatus.enqueued });
+    await repo.update({ id: jobId }, { status: JobStatus.queued });
     await redisRepo.addTenant(job.tenantId);
-    await historyRepo.save(historyRepo.create({ job: { id: jobId } as any, status: JobStatus.enqueued, note: 'scheduler enqueue' }));
+    await historyRepo.save(historyRepo.create({ job: { id: jobId } as any, status: JobStatus.queued, note: 'scheduler enqueue' }));
   }
 }
 
@@ -68,15 +68,15 @@ async function reclaim() {
   for (const j of expired) {
     console.log('reclaiming job', j.id);
     await redisRepo.reclaimToPending(j.tenantId, j.id);
-    await repo.update({ id: j.id }, { status: JobStatus.enqueued, leasedUntil: null, leaseId: null });
-    await historyRepo.save(historyRepo.create({ job: j as any, status: JobStatus.enqueued, note: 'reclaimed' }));
+    await repo.update({ id: j.id }, { status: JobStatus.queued, leasedUntil: null, leaseId: null });
+    await historyRepo.save(historyRepo.create({ job: j as any, status: JobStatus.queued, note: 'reclaimed' }));
   }
 }
 
 async function normalize() {
   const repos = Repositories.getInstance();
   const repo = await repos.jobRepository();
-  await repo.update({ status: JobStatus.enqueued }, { backoffStrategy: getBackoffStrategy(), backoffSeconds: getBackoffSeconds() });
+  await repo.update({ status: JobStatus.queued }, { backoffStrategy: getBackoffStrategy(), backoffSeconds: getBackoffSeconds() });
 }
 
 async function main() {
