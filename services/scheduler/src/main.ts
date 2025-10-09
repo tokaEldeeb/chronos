@@ -9,8 +9,6 @@ const repos = Repositories.getInstance();
 const redisRepo = RedisRepository.getInstance();
 
 async function tick() {
-  const repo = await repos.jobRepository();
-  const historyRepo = await repos.jobHistoryRepository();
   const schedRepo = new JobQueueRepository();
   const now = new Date();
   const due = await schedRepo.findDueJobs(Number(process.env.SCHEDULER_BATCH || 100), now);
@@ -19,9 +17,7 @@ async function tick() {
     console.log('processing job', job.id);
     const jobId = job.id;
     await redisRepo.enqueuePending(job.tenantId, jobId);
-    await repo.update({ id: jobId }, { status: JobStatus.queued });
     await redisRepo.addTenant(job.tenantId);
-    await historyRepo.save(historyRepo.create({ job: { id: jobId } as any, status: JobStatus.queued, note: 'scheduler enqueue' }));
   }
 }
 
@@ -68,7 +64,7 @@ async function reclaim() {
   for (const j of expired) {
     console.log('reclaiming job', j.id);
     await redisRepo.reclaimToPending(j.tenantId, j.id);
-    await repo.update({ id: j.id }, { status: JobStatus.queued, leasedUntil: null, leaseId: null });
+    await repo.update({ id: j.id }, { status: JobStatus.queued, leasedUntil: null, correlationId: null });
     await historyRepo.save(historyRepo.create({ job: j as any, status: JobStatus.queued, note: 'reclaimed' }));
   }
 }

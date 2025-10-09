@@ -34,7 +34,7 @@ Chronos is a multi-tenant job system that schedules and runs background jobs wit
 - For each tick:
   - Pick next tenant in round-robin
   - Move a job id via `RPOPLPUSH` from `tenant:<id>:pending` to `tenant:<id>:executing`
-  - Lease the job in Postgres (set `status = leased`, `leaseId`, `leasedUntil`), else remove from executing if stale
+  - Lease the job in Postgres (set `status = leased`, `correlationId`, `leasedUntil`), else remove from executing if stale
   - Execute job types:
     - `compute`: deterministic compute (e.g. sum numbers)
     - `http_call`: perform HTTP request

@@ -17,8 +17,8 @@ export class JobQueueRepository {
     const jobs = await ds
       .getRepository(JobEntity)
       .createQueryBuilder('j')
-      .where("j.status = :status", { status: JobStatus.pending })
-      .andWhere('(j.runAt IS NULL OR j.runAt <= :now)', { now })
+      .where("j.status IN (:...statuses)", { statuses: [JobStatus.pending, JobStatus.failed] })
+      .andWhere('(j.runAt <= :now)', { now })
       .orderBy('j.priority', 'DESC')
       .limit(limit)
       .getMany();

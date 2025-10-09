@@ -11,7 +11,7 @@ export class JobsService {
   constructor() {}
 
   async enqueue(dto: EnqueueJobDto): Promise<JobEntity> {
-    const runAt = dto.runAt ? new Date(dto.runAt) : dto.delaySeconds ? new Date(Date.now() + dto.delaySeconds * 1000) : null;
+    const runAt = dto.runAt ? new Date(dto.runAt) : dto.delaySeconds ? new Date(Date.now() + dto.delaySeconds * 1000) : new Date();
     const jobsRepo = await this.repos.jobRepository();
     const jobHistoryRepo = await this.repos.jobHistoryRepository();
 
@@ -29,11 +29,11 @@ export class JobsService {
       runAt,
       status: JobStatus.pending,
       attempts: 0,
-      maxAttempts: 5,
+      maxAttempts: process.env.MAX_ATTEMPTS ? Number(process.env.MAX_ATTEMPTS) : 5,
       backoffStrategy: process.env.BACKOFF_STRATEGY as 'exponential' | 'fixed' || 'exponential',
       backoffSeconds: Number(process.env.BACKOFF_SECONDS || 5),
       leasedUntil: null,
-      leaseId: null,
+      correlationId: null,
       lastError: null,
     });
 
@@ -67,7 +67,7 @@ export class JobsService {
     if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'dead_lettered') return true;
     job.status = 'cancelled';
     job.leasedUntil = null;
-    job.leaseId = null;
+    job.correlationId = null;
     await jobsRepo.save(job);
     await jobHistoryRepo.save(jobHistoryRepo.create({ job, status: 'cancelled', note: 'api cancel' }));
     // also remove from Redis queues if present

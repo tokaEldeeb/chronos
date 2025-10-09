@@ -48,7 +48,7 @@ export class JobEntity {
   leasedUntil!: Date | null;
 
   @Column('varchar', { nullable: true })
-  leaseId!: string | null;
+  correlationId!: string | null;
 
   @Column('varchar', { nullable: true })
   lastError!: string | null;

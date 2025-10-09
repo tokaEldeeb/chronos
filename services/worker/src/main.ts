@@ -55,22 +55,22 @@ async function processOnce(rr: { idx: number; tenants: string[] }) {
   }
 
   console.log('job found', jobId);
-  const leaseId = randomUUID();
+  const correlationId = randomUUID();
   const visTimeoutSec = Number(process.env.VISIBILITY_TIMEOUT_SEC || 30);
   const leasedUntil = new Date(Date.now() + visTimeoutSec * 1000);
-  const updated = await repo.update({ id: job.id }, { status: JobStatus.queued, leaseId, leasedUntil, attempts: job.attempts + 1 });
+  const updated = await repo.update({ id: job.id }, { status: JobStatus.queued, correlationId: correlationId, leasedUntil, attempts: job.attempts + 1 });
   if (!updated.affected) {
     console.log('update failed', jobId);
     await redis.removeFromQueues(tenant, jobId);
     return;
   }
   console.log('update successful', jobId);
-  await historyRepo.save(historyRepo.create({ job, status: JobStatus.leased, note: leaseId }));
+  await historyRepo.save(historyRepo.create({ job, status: JobStatus.leased, note: correlationId }));
 
   try {
     console.log('executing job', jobId);
     const result = await executeJob(job);
-    await repo.update({ id: job.id }, { status: JobStatus.succeeded, leaseId: null, leasedUntil: null, lastError: null });
+    await repo.update({ id: job.id }, { status: JobStatus.succeeded, correlationId: null, leasedUntil: null, lastError: null });
     await (await repos.jobAttemptRepository()).createQueryBuilder().insert().into(JobAttemptEntity).values({ id: randomUUID(), job: {id: job.id}, attemptNumber: job.attempts + 1, error: null, result }).execute();
     await historyRepo.save(historyRepo.create({ job, status: JobStatus.succeeded, note: 'ok' }));
     await redis.removeFromQueues(tenant, jobId);
@@ -82,15 +82,15 @@ async function processOnce(rr: { idx: number; tenants: string[] }) {
     await (await repos.jobAttemptRepository()).createQueryBuilder().insert().into(JobAttemptEntity).values({ id: randomUUID(), job: {id: job.id}, attemptNumber: attempts, error, result: null }).execute();
     if (attempts >= job.maxAttempts) {
       console.log('dead lettered job', jobId);
-      await repo.update({ id: job.id }, { status: JobStatus.dead_lettered, leaseId: null, leasedUntil: null, lastError: error });
+      await repo.update({ id: job.id }, { status: JobStatus.dead_lettered, correlationId: null, leasedUntil: null, lastError: error });
       await historyRepo.save(historyRepo.create({ job, status: JobStatus.dead_lettered, note: error }));
       await redis.removeFromQueues(tenant, jobId);
     } else {
       console.log('retrying job', jobId);
       const delaySec = nextBackoffSeconds(job);
       console.log('retrying job', jobId, delaySec);
-      await repo.update({ id: job.id }, { status: JobStatus.pending, attempts, leaseId: null, leasedUntil: null, lastError: error, runAt: new Date(Date.now() + delaySec * 1000), enqueued: false });
-      await historyRepo.save(historyRepo.create({ job, status: JobStatus.pending, note: `retry in ${delaySec}s` }));
+      await repo.update({ id: job.id }, { status: JobStatus.failed, attempts, correlationId: null, leasedUntil: null, lastError: error, runAt: new Date(Date.now() + delaySec * 1000), enqueued: false });
+      await historyRepo.save(historyRepo.create({ job, status: JobStatus.failed, note: `retry in ${delaySec}s` }));
       await redis.removeFromQueues(tenant, jobId);
       console.log('removed from queues', jobId);
     }
