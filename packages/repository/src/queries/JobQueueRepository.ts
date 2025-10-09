@@ -94,7 +94,7 @@ export class JobQueueRepository {
     return ds
       .getRepository(JobEntity)
       .createQueryBuilder('j')
-      .where('j.status = :status', { status: JobStatus.leased })
+      .where('j.status = :status', { status: JobStatus.queued })
       .andWhere('j.leasedUntil IS NOT NULL AND j.leasedUntil < :now', { now })
       .orderBy('j.leasedUntil', 'ASC')
       .limit(limit)

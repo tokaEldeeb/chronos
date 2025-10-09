@@ -9,16 +9,12 @@ export interface Tenant {
 
 export enum JobStatus {
   pending = 'pending',
-  enqueued = 'enqueued',
-  executing = 'executing',
+  queued = 'queued',
   leased = 'leased',
-  completed = 'completed',
   succeeded = 'succeeded',
   failed = 'failed',
-  canceled = 'canceled',
   cancelled = 'cancelled',
   dead_lettered = 'dead_lettered',
-  paused = 'paused'
 }
 
 export interface JobPayload {

@@ -58,7 +58,7 @@ async function processOnce(rr: { idx: number; tenants: string[] }) {
   const leaseId = randomUUID();
   const visTimeoutSec = Number(process.env.VISIBILITY_TIMEOUT_SEC || 30);
   const leasedUntil = new Date(Date.now() + visTimeoutSec * 1000);
-  const updated = await repo.update({ id: job.id }, { status: JobStatus.leased, leaseId, leasedUntil, attempts: job.attempts + 1 });
+  const updated = await repo.update({ id: job.id }, { status: JobStatus.queued, leaseId, leasedUntil, attempts: job.attempts + 1 });
   if (!updated.affected) {
     console.log('update failed', jobId);
     await redis.removeFromQueues(tenant, jobId);
