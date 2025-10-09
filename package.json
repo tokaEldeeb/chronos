@@ -1,0 +1,19 @@
+{
+  "name": "chronos",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "build": "npm run -w @chronos/shared build && npm run -w @chronos/api build && npm run -w @chronos/scheduler build && npm run -w @chronos/worker build",
+    "dev:api": "npm run -w @chronos/api start:dev",
+    "dev:scheduler": "npm run -w @chronos/scheduler start:dev",
+    "dev:worker": "npm run -w @chronos/worker start:dev",
+    "start:api": "npm run -w @chronos/api start",
+    "start:scheduler": "npm run -w @chronos/scheduler start",
+    "start:worker": "npm run -w @chronos/worker start"
+  }
+}
+
