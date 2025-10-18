@@ -57,6 +57,27 @@ docker compose up -d
 curl http://localhost:3000/v1/metrics
 ```
 
+### 3D Room Viewer (Blue & Grey Bunk Bed)
+
+A lightweight Three.js viewer is included to visualize the bedroom layout similar to the reference image.
+
+Run it locally:
+
+```bash
+# install dependencies for the viewer (one-time)
+npm install --workspace=@chronos/viewer
+
+# start dev server at http://localhost:5173
+npm run dev:viewer
+```
+
+Build for production preview:
+
+```bash
+npm run build:viewer
+npm run preview:viewer
+```
+
 ### Example Requests
 
 Immediate compute job:

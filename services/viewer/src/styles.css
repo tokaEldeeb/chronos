@@ -1,0 +1,7 @@
+html, body, #app { height: 100%; margin: 0; }
+#app { display: grid; grid-template-rows: auto 1fr; }
+.toolbar { display: flex; gap: 12px; align-items: center; padding: 10px 14px; background: #0e1b25; color: #eaf2f8; font-family: Inter, system-ui, sans-serif; }
+.toolbar .title { font-weight: 600; letter-spacing: .2px; }
+.canvas-wrap { position: relative; }
+.instructions { position: absolute; right: 12px; top: 12px; padding: 8px 10px; background: rgba(14,27,37,.72); color: #cde4ff; border-radius: 8px; font-size: 12px; line-height: 1.35; max-width: 280px; }
+.badge { display:inline-block; padding:2px 6px; border-radius:6px; background:#1e3a5f; color:#b8d8ff; font-size:11px; }
