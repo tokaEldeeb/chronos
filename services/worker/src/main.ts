@@ -2,10 +2,11 @@ import 'reflect-metadata';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { JobStatus } from '@chronos/shared';
-import { JobEntity, JobAttemptEntity, Repositories,RedisRepository, RedisConnection, PGDataSource } from '@chronos/repository';
+import { JobEntity, JobAttemptEntity, Repositories, RedisRepository, RedisConnection, PGDataSource } from '@chronos/repository';
 
 const redis = new RedisRepository();
 const repos = new Repositories();
+const CONSUMER_NAME = process.env.WORKER_NAME || `worker-${randomUUID()}`;
 
 function nextBackoffSeconds(job: JobEntity): number {
   const base = job.backoffSeconds || 5;
@@ -30,7 +31,6 @@ async function executeJob(job: JobEntity): Promise<string> {
 }
 
 async function processOnce(rr: { idx: number; tenants: string[] }) {
-  console.log('processing once');
   if (rr.tenants.length === 0) {
     rr.tenants = await redis.listTenants();
     rr.idx = 0;
@@ -40,82 +40,104 @@ async function processOnce(rr: { idx: number; tenants: string[] }) {
   const tenant = rr.tenants[rr.idx % rr.tenants.length];
   rr.idx = (rr.idx + 1) % rr.tenants.length;
 
-  console.log('moving pending to executing', tenant);
-  const jobId = await redis.movePendingToExecuting(tenant);
-  if (!jobId) return;
+  // Read from Redis stream (consumer group)
+  const msg = await redis.fetchNextJob(tenant, CONSUMER_NAME);
+  if (!msg) return;
 
-  console.log('moving pending to executing', tenant);
+  const { id: messageId, jobId } = msg;
   const repo = await repos.jobRepository();
   const historyRepo = await repos.jobHistoryRepository();
   const job = await repo.findOneBy({ id: jobId });
+
   if (!job) {
-    console.log('job not found', jobId);
-    await redis.removeFromQueues(tenant, jobId);
+    console.warn(`Job not found in DB: ${jobId}`);
+    await redis.ackJob(tenant, messageId);
     return;
   }
 
-  console.log('job found', jobId);
   const correlationId = randomUUID();
-  const visTimeoutSec = Number(process.env.VISIBILITY_TIMEOUT_SEC || 30);
-  const leasedUntil = new Date(Date.now() + visTimeoutSec * 1000);
-  const updated = await repo.update({ id: job.id }, { status: JobStatus.queued, correlationId: correlationId, leasedUntil, attempts: job.attempts + 1 });
+  const leasedUntil = new Date(Date.now() + 30000);
+  const updated = await repo.update(
+    { id: job.id },
+    { status: JobStatus.queued, correlationId, leasedUntil, attempts: job.attempts + 1 }
+  );
+
   if (!updated.affected) {
-    console.log('update failed', jobId);
-    await redis.removeFromQueues(tenant, jobId);
+    console.warn('Failed to lease job', jobId);
+    await redis.ackJob(tenant, messageId);
     return;
   }
-  console.log('update successful', jobId);
+
   await historyRepo.save(historyRepo.create({ job, status: JobStatus.leased, note: correlationId }));
 
   try {
-    console.log('executing job', jobId);
     const result = await executeJob(job);
-    await repo.update({ id: job.id }, { status: JobStatus.succeeded, correlationId: null, leasedUntil: null, lastError: null });
-    await (await repos.jobAttemptRepository()).createQueryBuilder().insert().into(JobAttemptEntity).values({ id: randomUUID(), job: {id: job.id}, attemptNumber: job.attempts + 1, error: null, result }).execute();
+    await repo.update(
+      { id: job.id },
+      { status: JobStatus.succeeded, correlationId: null, leasedUntil: null, lastError: null }
+    );
+    await (await repos.jobAttemptRepository())
+      .createQueryBuilder()
+      .insert()
+      .into(JobAttemptEntity)
+      .values({ id: randomUUID(), job: { id: job.id }, attemptNumber: job.attempts + 1, result })
+      .execute();
     await historyRepo.save(historyRepo.create({ job, status: JobStatus.succeeded, note: 'ok' }));
-    await redis.removeFromQueues(tenant, jobId);
-    console.log('removed from queues as succeeded', jobId);
+    await redis.ackJob(tenant, messageId); // ✅ acknowledge stream message
   } catch (err: any) {
-    console.log('error executing job', jobId);
-    const attempts = job.attempts + 1;
     const error = err?.message || String(err);
-    await (await repos.jobAttemptRepository()).createQueryBuilder().insert().into(JobAttemptEntity).values({ id: randomUUID(), job: {id: job.id}, attemptNumber: attempts, error, result: null }).execute();
+    const attempts = job.attempts + 1;
+    await (await repos.jobAttemptRepository())
+      .createQueryBuilder()
+      .insert()
+      .into(JobAttemptEntity)
+      .values({ id: randomUUID(), job: { id: job.id }, attemptNumber: attempts, error })
+      .execute();
+
     if (attempts >= job.maxAttempts) {
-      console.log('dead lettered job', jobId);
-      await repo.update({ id: job.id }, { status: JobStatus.dead_lettered, correlationId: null, leasedUntil: null, lastError: error });
+      await repo.update(
+        { id: job.id },
+        { status: JobStatus.dead_lettered, correlationId: null, leasedUntil: null, lastError: error }
+      );
       await historyRepo.save(historyRepo.create({ job, status: JobStatus.dead_lettered, note: error }));
-      await redis.removeFromQueues(tenant, jobId);
+      await redis.ackJob(tenant, messageId); // remove from stream
     } else {
-      console.log('retrying job', jobId);
       const delaySec = nextBackoffSeconds(job);
-      console.log('retrying job', jobId, delaySec);
-      await repo.update({ id: job.id }, { status: JobStatus.failed, attempts, correlationId: null, leasedUntil: null, lastError: error, runAt: new Date(Date.now() + delaySec * 1000), enqueued: false });
+      await repo.update(
+        { id: job.id },
+        {
+          status: JobStatus.failed,
+          attempts,
+          correlationId: null,
+          leasedUntil: null,
+          lastError: error,
+          runAt: new Date(Date.now() + delaySec * 1000),
+          enqueued: false,
+        }
+      );
       await historyRepo.save(historyRepo.create({ job, status: JobStatus.failed, note: `retry in ${delaySec}s` }));
-      await redis.removeFromQueues(tenant, jobId);
-      console.log('removed from queues', jobId);
+      await redis.ackJob(tenant, messageId);
     }
   }
 }
 
 async function main() {
   const rr = { idx: 0, tenants: [] as string[] };
-  const intervalMs = Number(process.env.WORKER_INTERVAL_MS || 100);
-  // eslint-disable-next-line no-console
-  console.log(`Worker started (loop ${intervalMs}ms)`);
+  const intervalMs = Number(process.env.WORKER_INTERVAL_MS || 200);
+  console.log(`Worker ${CONSUMER_NAME} started (interval ${intervalMs}ms)`);
+
   setInterval(() => {
     processOnce(rr).catch((e) => console.error('worker error', e));
   }, intervalMs);
+
   process.on('SIGINT', async () => {
     await PGDataSource.getInstance().disconnect();
-    await RedisConnection.getInstance().disconnect();
+    await RedisConnection.getInstance().getRedis().quit();
     process.exit(0);
   });
 }
 
 main().catch((e) => {
-  // eslint-disable-next-line no-console
   console.error(e);
   process.exit(1);
 });
-
-

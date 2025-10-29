@@ -12,12 +12,15 @@ async function tick() {
   const schedRepo = new JobQueueRepository();
   const now = new Date();
   const due = await schedRepo.findDueJobs(Number(process.env.SCHEDULER_BATCH || 100), now);
+
   console.log('processing jobs', due.length);
-  for (const job of due) {   
-    console.log('processing job', job.id);
+  for (const job of due) {
     const jobId = job.id;
-    await redisRepo.enqueuePending(job.tenantId, jobId);
-    await redisRepo.addTenant(job.tenantId);
+    const tenantId = job.tenantId;
+    await redisRepo.addTenant(tenantId); 
+    const messageId = await redisRepo.enqueuePending(tenantId, jobId);
+
+    console.log(`Scheduled job ${jobId} for tenant ${tenantId} (message ${messageId})`);
   }
 }
 
@@ -56,17 +59,37 @@ async function processSchedules(now: Date) {
 async function reclaim() {
   const repo = await repos.jobRepository();
   const historyRepo = await repos.jobHistoryRepository();
-  const schedRepo = new JobQueueRepository();
-  const now = new Date();
-  const expired = await schedRepo.findExpiredLeases(Number(process.env.RECLAIM_BATCH || 200), now);
-  console.log('reclaiming jobs', expired.length);
-  for (const j of expired) {
-    console.log('reclaiming job', j.id);
-    await redisRepo.reclaimToPending(j.tenantId, j.id);
-    await repo.update({ id: j.id }, { status: JobStatus.queued, leasedUntil: null, correlationId: null });
-    await historyRepo.save(historyRepo.create({ job: j as any, status: JobStatus.queued, note: 'reclaimed' }));
+  const tenants = await redisRepo.listTenants();
+  const idleMs = Number(process.env.VISIBILITY_TIMEOUT_MS || 30000);
+
+  console.log(`[Reclaimer] Checking tenants (${tenants.length})`);
+
+  for (const tenant of tenants) {
+    const reclaimed = await redisRepo.reclaimStuckJobs(tenant, idleMs) as string[];
+    console.log(`[Reclaimer] Tenant ${tenant}: reclaimed ${reclaimed.length} messages`);
+
+    for (const messageId of reclaimed) {
+      // you can read the message back to get the jobId
+     
+      const msg = await redisRepo.getMessage(tenant, messageId);
+      if (msg.length > 0) {
+        const [, fields] = msg[0];
+        const jobIdIndex = fields.indexOf('jobId');
+        const jobId = jobIdIndex !== -1 ? fields[jobIdIndex + 1] : null;
+        if (jobId) {
+          await repo.update(
+            { id: jobId },
+            { status: JobStatus.queued, leasedUntil: null, correlationId: null }
+          );
+          await historyRepo.save(
+            historyRepo.create({ job: { id: jobId } as any, status: JobStatus.queued, note: 'reclaimed' })
+          );
+        }
+      }
+    }
   }
 }
+
 
 async function normalize() {
   const repo = await repos.jobRepository();
