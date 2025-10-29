@@ -2,10 +2,10 @@ import 'reflect-metadata';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { JobStatus } from '@chronos/shared';
-import { JobEntity, JobAttemptEntity, Repositories,RedisRepository } from '@chronos/repository';
+import { JobEntity, JobAttemptEntity, Repositories,RedisRepository, RedisConnection, PGDataSource } from '@chronos/repository';
 
-const redis = RedisRepository.getInstance();
-const repos = Repositories.getInstance();
+const redis = new RedisRepository();
+const repos = new Repositories();
 
 function nextBackoffSeconds(job: JobEntity): number {
   const base = job.backoffSeconds || 5;
@@ -105,6 +105,11 @@ async function main() {
   setInterval(() => {
     processOnce(rr).catch((e) => console.error('worker error', e));
   }, intervalMs);
+  process.on('SIGINT', async () => {
+    await PGDataSource.getInstance().disconnect();
+    await RedisConnection.getInstance().disconnect();
+    process.exit(0);
+  });
 }
 
 main().catch((e) => {

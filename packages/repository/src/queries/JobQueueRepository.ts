@@ -2,14 +2,13 @@ import { DataSource } from 'typeorm';
 import { JobEntity } from '../entities/JobEntity';
 import { ScheduleEntity } from '../entities/ScheduleEntity';
 import { JobStatus } from '@chronos/shared';
-import { createDataSourceFromEnv } from '../pg';
+import { PGDataSource } from '../databaseConnection';
 
 export class JobQueueRepository {
   private readonly ready: Promise<DataSource>;
 
   constructor() {
-    const ds = createDataSourceFromEnv();
-    this.ready = ds.isInitialized ? Promise.resolve(ds) : ds.initialize();
+    this.ready = Promise.resolve(PGDataSource.getInstance().getDataSource());
   }
 
   async findDueJobs(limit: number, now: Date): Promise<JobEntity[]> {

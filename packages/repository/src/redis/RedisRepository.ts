@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import { createRedisFromEnv } from '../pg';
+import { RedisConnection } from '../redisConnection';
 
 export const TENANTS_SET_KEY = 'tenants';
 
@@ -17,17 +17,9 @@ function executingLeaseKey(tenantId: string, jobId: string): string {
 
 export class RedisRepository {
   private readonly client: Redis;
-  private static instance: RedisRepository | null = null;
 
-  private constructor() {
-    this.client = createRedisFromEnv();
-  }
-
-  static getInstance(): RedisRepository {
-    if (!RedisRepository.instance) {
-      RedisRepository.instance = new RedisRepository();
-    }
-    return RedisRepository.instance;
+  constructor() {
+    this.client = RedisConnection.getInstance().getRedis();
   }
 
   async addTenant(tenantId: string): Promise<void> {

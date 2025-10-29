@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import cron from 'node-cron';
-import { RedisRepository, JobQueueRepository, Repositories } from '@chronos/repository';
+import { RedisRepository, JobQueueRepository, Repositories, PGDataSource, RedisConnection } from '@chronos/repository';
 import { JobStatus } from '@chronos/shared';
 import parser from 'cron-parser';
 import { getBackoffSeconds, getBackoffStrategy } from './config';
 
-const repos = Repositories.getInstance();
-const redisRepo = RedisRepository.getInstance();
+const repos = new Repositories();
+const redisRepo = new RedisRepository();
 
 async function tick() {
   const schedRepo = new JobQueueRepository();
@@ -22,7 +22,6 @@ async function tick() {
 }
 
 async function processSchedules(now: Date) {
-  const repos = Repositories.getInstance();
   const schedRepo = new JobQueueRepository();
   const repo = await repos.jobRepository();
   const scheduleRepo = await repos.scheduleRepository();
@@ -70,7 +69,6 @@ async function reclaim() {
 }
 
 async function normalize() {
-  const repos = Repositories.getInstance();
   const repo = await repos.jobRepository();
   await repo.update({ status: JobStatus.queued }, { backoffStrategy: getBackoffStrategy(), backoffSeconds: getBackoffSeconds() });
 }
@@ -87,10 +85,14 @@ async function main() {
 
   const normalizeCron = process.env.BACKOFF_NORMALIZE_CRON || '*/10 * * * * *';
   cron.schedule(normalizeCron, () => normalize().catch((err) => console.error('normalize error', err)));
+  process.on('SIGINT', async () => {
+    await PGDataSource.getInstance().disconnect();
+    await RedisConnection.getInstance().disconnect();
+    process.exit(0);
+  });
 }
 
 main().catch((e) => {
-  // eslint-disable-next-line no-console
   console.error(e);
   process.exit(1);
 });
