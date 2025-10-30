@@ -73,7 +73,7 @@ async function processOnce(rr: { idx: number; tenants: string[] }) {
   try {
     const result = await executeJob(job);
     await repo.update(
-      { id: job.id },
+      { id: job.id, correlationId },
       { status: JobStatus.succeeded, correlationId: null, leasedUntil: null, lastError: null }
     );
     await (await repos.jobAttemptRepository())
@@ -96,7 +96,7 @@ async function processOnce(rr: { idx: number; tenants: string[] }) {
 
     if (attempts >= job.maxAttempts) {
       await repo.update(
-        { id: job.id },
+        { id: job.id, correlationId },
         { status: JobStatus.dead_lettered, correlationId: null, leasedUntil: null, lastError: error }
       );
       await historyRepo.save(historyRepo.create({ job, status: JobStatus.dead_lettered, note: error }));
@@ -104,7 +104,7 @@ async function processOnce(rr: { idx: number; tenants: string[] }) {
     } else {
       const delaySec = nextBackoffSeconds(job);
       await repo.update(
-        { id: job.id },
+        { id: job.id, correlationId },
         {
           status: JobStatus.failed,
           attempts,

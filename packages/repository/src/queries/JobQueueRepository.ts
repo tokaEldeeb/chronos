@@ -18,6 +18,7 @@ export class JobQueueRepository {
       .createQueryBuilder('j')
       .where("j.status IN (:...statuses)", { statuses: [JobStatus.pending, JobStatus.failed] })
       .andWhere('(j.runAt <= :now)', { now })
+      .setLock('pessimistic_write')
       .orderBy('j.priority', 'DESC')
       .limit(limit)
       .getMany();
@@ -31,6 +32,7 @@ export class JobQueueRepository {
       .createQueryBuilder('s')
       .where('s.active = true')
       .andWhere('(s.nextRunAt IS NULL OR s.nextRunAt <= :now)', { now })
+      .setLock('pessimistic_write')
       .limit(limit)
       .getMany();
   }
@@ -90,18 +92,6 @@ export class JobQueueRepository {
       if (status === 'dead_letter') perTenant[t].dead_letter += count;
     }
     return perTenant;
-  }
-
-  async findExpiredLeases(limit: number, now: Date): Promise<JobEntity[]> {
-    const ds = await this.ready;
-    return ds
-      .getRepository(JobEntity)
-      .createQueryBuilder('j')
-      .where('j.status = :status', { status: JobStatus.queued })
-      .andWhere('j.leasedUntil IS NOT NULL AND j.leasedUntil < :now', { now })
-      .orderBy('j.leasedUntil', 'ASC')
-      .limit(limit)
-      .getMany();
   }
 }
 
