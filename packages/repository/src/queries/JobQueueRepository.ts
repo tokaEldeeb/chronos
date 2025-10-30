@@ -2,14 +2,13 @@ import { DataSource } from 'typeorm';
 import { JobEntity } from '../entities/JobEntity';
 import { ScheduleEntity } from '../entities/ScheduleEntity';
 import { JobStatus } from '@chronos/shared';
-import { createDataSourceFromEnv } from '../pg';
+import { PGDataSource } from '../databaseConnection';
 
 export class JobQueueRepository {
   private readonly ready: Promise<DataSource>;
 
   constructor() {
-    const ds = createDataSourceFromEnv();
-    this.ready = ds.isInitialized ? Promise.resolve(ds) : ds.initialize();
+    this.ready = Promise.resolve(PGDataSource.getInstance().getDataSource());
   }
 
   async findDueJobs(limit: number, now: Date): Promise<JobEntity[]> {
@@ -19,6 +18,7 @@ export class JobQueueRepository {
       .createQueryBuilder('j')
       .where("j.status IN (:...statuses)", { statuses: [JobStatus.pending, JobStatus.failed] })
       .andWhere('(j.runAt <= :now)', { now })
+      .setLock('pessimistic_write')
       .orderBy('j.priority', 'DESC')
       .limit(limit)
       .getMany();
@@ -32,6 +32,7 @@ export class JobQueueRepository {
       .createQueryBuilder('s')
       .where('s.active = true')
       .andWhere('(s.nextRunAt IS NULL OR s.nextRunAt <= :now)', { now })
+      .setLock('pessimistic_write')
       .limit(limit)
       .getMany();
   }
@@ -91,18 +92,6 @@ export class JobQueueRepository {
       if (status === 'dead_letter') perTenant[t].dead_letter += count;
     }
     return perTenant;
-  }
-
-  async findExpiredLeases(limit: number, now: Date): Promise<JobEntity[]> {
-    const ds = await this.ready;
-    return ds
-      .getRepository(JobEntity)
-      .createQueryBuilder('j')
-      .where('j.status = :status', { status: JobStatus.queued })
-      .andWhere('j.leasedUntil IS NOT NULL AND j.leasedUntil < :now', { now })
-      .orderBy('j.leasedUntil', 'ASC')
-      .limit(limit)
-      .getMany();
   }
 }
 
